@@ -1,0 +1,169 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidStudentProgress(data) {
+      return data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128 &&
+             data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 80 &&
+             data.highestUnlockedStage is int && data.highestUnlockedStage >= 1 && data.highestUnlockedStage <= 10 &&
+             data.completedStages is list && data.completedStages.size() <= 10 &&
+             (data.completedStages.size() == 0 || data.completedStages[0] is int) &&
+             data.exploredObjects is list && data.exploredObjects.size() <= 10 &&
+             (data.exploredObjects.size() == 0 || data.exploredObjects[0] is string) &&
+             data.selectedStrategies is list && data.selectedStrategies.size() <= 15 &&
+             (data.selectedStrategies.size() == 0 || data.selectedStrategies[0] is string) &&
+             data.studentAnalysisDone is bool &&
+             data.localWisdomDone is bool &&
+             data.strategyChoiceDone is bool &&
+             data.caseAnalysisSummary is string && data.caseAnalysisSummary.size() <= 1000 &&
+             data.quizScore is int && data.quizScore >= 0 && data.quizScore <= 100 &&
+             data.quizCompleted is bool &&
+             data.reflectionText is string && data.reflectionText.size() <= 2000 &&
+             data.competencyRecommendation is string && data.competencyRecommendation.size() <= 1000;
+    }
+
+    function isValidAiLabRecord(data) {
+      return data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128 &&
+             data.toolType in ['CASE_STUDY', 'QUIZ', 'STRATEGY_ANALYSIS', 'AI_TUTOR'] &&
+             data.promptText is string && data.promptText.size() >= 1 && data.promptText.size() <= 600 &&
+             data.responseText is string && data.responseText.size() >= 1 && data.responseText.size() <= 5000 &&
+             data.sourceMode in ['GEMINI_AI', 'LOCAL_SIMULATION'] &&
+             data.difficultyLevel in ['DASAR', 'MENENGAH', 'LANJUT'];
+    }
+
+    function isValidNotification(data) {
+      return data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128 &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 120 &&
+             data.message is string && data.message.size() >= 1 && data.message.size() <= 400 &&
+             data.stageNumber is int && data.stageNumber >= 1 && data.stageNumber <= 10 &&
+             data.readFlag is bool;
+    }
+
+    match /users/{userId} {
+      allow get: if isOwner(userId) && isValidId(userId);
+      allow list: if isOwner(userId);
+
+      allow create: if isOwner(userId) &&
+                       isValidId(userId) &&
+                       incoming().keys().hasAll([
+                         'userId', 'displayName', 'highestUnlockedStage', 'completedStages',
+                         'exploredObjects', 'selectedStrategies', 'studentAnalysisDone',
+                         'localWisdomDone', 'strategyChoiceDone', 'caseAnalysisSummary',
+                         'quizScore', 'quizCompleted', 'reflectionText',
+                         'competencyRecommendation', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'userId', 'displayName', 'highestUnlockedStage', 'completedStages',
+                         'exploredObjects', 'selectedStrategies', 'studentAnalysisDone',
+                         'localWisdomDone', 'strategyChoiceDone', 'caseAnalysisSummary',
+                         'quizScore', 'quizCompleted', 'reflectionText',
+                         'competencyRecommendation', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().createdAt is timestamp && incoming().createdAt <= request.time &&
+                       incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                       isValidStudentProgress(incoming());
+
+      allow update: if isOwner(userId) &&
+                       isValidId(userId) &&
+                       isValidStudentProgress(incoming()) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                       incoming().diff(existing()).affectedKeys().hasOnly([
+                         'displayName', 'highestUnlockedStage', 'completedStages',
+                         'exploredObjects', 'selectedStrategies', 'studentAnalysisDone',
+                         'localWisdomDone', 'strategyChoiceDone', 'caseAnalysisSummary',
+                         'quizScore', 'quizCompleted', 'reflectionText',
+                         'competencyRecommendation', 'updatedAt'
+                       ]);
+
+      allow delete: if isOwner(userId) && isValidId(userId);
+
+      match /ai_records/{recordId} {
+        allow get: if isOwner(userId) && isValidId(recordId);
+        allow list: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+                         isValidId(recordId) &&
+                         incoming().keys().hasAll([
+                           'userId', 'toolType', 'promptText', 'responseText',
+                           'sourceMode', 'difficultyLevel', 'createdAt', 'updatedAt'
+                         ]) &&
+                         incoming().keys().hasOnly([
+                           'userId', 'toolType', 'promptText', 'responseText',
+                           'sourceMode', 'difficultyLevel', 'createdAt', 'updatedAt'
+                         ]) &&
+                         incoming().createdAt is timestamp && incoming().createdAt <= request.time &&
+                         incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                         isValidAiLabRecord(incoming());
+
+        allow update: if isOwner(userId) &&
+                         isValidId(recordId) &&
+                         isValidAiLabRecord(incoming()) &&
+                         incoming().userId == existing().userId &&
+                         incoming().createdAt == existing().createdAt &&
+                         incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                         incoming().diff(existing()).affectedKeys().hasOnly([
+                           'responseText', 'difficultyLevel', 'updatedAt'
+                         ]);
+
+        allow delete: if isOwner(userId) && isValidId(recordId);
+      }
+
+      match /notifications/{notificationId} {
+        allow get: if isOwner(userId) && isValidId(notificationId);
+        allow list: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+                         isValidId(notificationId) &&
+                         incoming().keys().hasAll([
+                           'userId', 'title', 'message', 'stageNumber',
+                           'readFlag', 'createdAt', 'updatedAt'
+                         ]) &&
+                         incoming().keys().hasOnly([
+                           'userId', 'title', 'message', 'stageNumber',
+                           'readFlag', 'createdAt', 'updatedAt'
+                         ]) &&
+                         incoming().createdAt is timestamp && incoming().createdAt <= request.time &&
+                         incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                         isValidNotification(incoming());
+
+        allow update: if isOwner(userId) &&
+                         isValidId(notificationId) &&
+                         isValidNotification(incoming()) &&
+                         incoming().userId == existing().userId &&
+                         incoming().createdAt == existing().createdAt &&
+                         incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                         incoming().diff(existing()).affectedKeys().hasOnly([
+                           'readFlag', 'updatedAt'
+                         ]);
+
+        allow delete: if isOwner(userId) && isValidId(notificationId);
+      }
+    }
+  }
+}

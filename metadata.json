@@ -1,0 +1,6 @@
+{
+  "name": "PAI Immersive",
+  "description": "Laboratorium Virtual Strategi Pembelajaran Pendidikan Agama Islam Berbasis VR 3D dan Generative AI.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
