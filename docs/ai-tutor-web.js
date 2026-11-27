@@ -157,7 +157,7 @@ function updateConfigStatusBanner() {
     if (!cfg.recaptchaEnterpriseSiteKey) missing.push("reCAPTCHA Enterprise Site Key");
     setBanner(
       "",
-      `Menunggu konfigurasi Web Firebase AI Logic / Backend Proxy (belum terisi: ${missing.join(", ")}). Aplikasi tidak memakai jawaban simulasi—isi 'Pengaturan Koneksi' di bawah atau lengkapi docs/firebase-config.js agar Gemini aktif di browser.`
+      `Menunggu konfigurasi Web Firebase AI Logic / Backend Proxy (belum terisi: ${missing.join(", ")}). Aplikasi tidak memakai jawaban simulasi—isi 'Pengaturan Koneksi' di bawah atau lengkapi firebase-config.js agar Gemini aktif di browser.`
     );
   }
 }
@@ -167,7 +167,7 @@ function ensureAiClient() {
   const status = getConfigurationMode(cfg);
   if (!status.ready) {
     throw new Error(
-      "Konfigurasi Firebase Web App + App Check (reCAPTCHA Enterprise) atau URL Backend Proxy belum diisi. Silakan lengkapi bagian 'Pengaturan Koneksi Firebase AI / Backend' atau file docs/firebase-config.js."
+      "Konfigurasi Firebase Web App + App Check (reCAPTCHA Enterprise) atau URL Backend Proxy belum diisi. Silakan lengkapi bagian 'Pengaturan Koneksi Firebase AI / Backend' atau file firebase-config.js."
     );
   }
   if (status.mode === "backend") {
