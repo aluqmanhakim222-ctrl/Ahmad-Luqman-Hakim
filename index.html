@@ -321,6 +321,10 @@
         <button type="button" class="obj-card-close" id="web-obj-close" aria-label="Tutup kartu objek">✕</button>
       </div>
       <p class="obj-card-desc" id="web-obj-desc"></p>
+      <div class="audio-controls" aria-label="Kontrol audio penjelasan objek">
+        <button type="button" class="audio-btn" id="btn-speak-object">🔊 Dengarkan Penjelasan</button>
+        <button type="button" class="audio-stop-btn" id="btn-stop-audio">■ Hentikan</button>
+      </div>
       <button type="button" class="obj-card-action" id="web-obj-open-tutor">Konsultasikan Objek Ini ke AI Tutor PAI</button>
     </aside>
 
@@ -593,6 +597,10 @@
         <div class="output-card-head">
           <span class="output-card-title" id="ai-output-title">Hasil AI Tutor PAI</span>
           <span class="output-badge" id="ai-output-badge">Siap</span>
+        </div>
+        <div class="audio-controls output-audio-controls" aria-label="Kontrol audio jawaban AI">
+          <button type="button" class="audio-btn" id="btn-speak-output">🔊 Bacakan Jawaban</button>
+          <button type="button" class="audio-stop-btn" id="btn-stop-output-audio">■ Hentikan Audio</button>
         </div>
         <div id="ai-output-text" class="output-text"></div>
         <div id="ai-quiz-container" style="display:none;"></div>
