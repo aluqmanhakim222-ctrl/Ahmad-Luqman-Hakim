@@ -288,38 +288,32 @@ async function runStreamingPrompt({ title, prompt, temperature = 0.75, topP = 0.
       return text;
     }
 
-    const model = getGenerativeModel(engine.ai, {
-      model: engine.cfg.geminiModel,
-      systemInstruction: SYSTEM_ACADEMIC_INSTRUCTION,
-      generationConfig: { temperature, topP }
-    });
+    // Firebase AI Logic SDK secara default memberi batas waktu 180 detik.
+    // Beri timeout eksplisit agar proses thinking Gemini 3.x tidak diputus
+    // oleh timer aplikasi 60 detik sebelum token jawaban pertama tiba.
+    const model = getGenerativeModel(
+      engine.ai,
+      {
+        model: engine.cfg.geminiModel,
+        systemInstruction: SYSTEM_ACADEMIC_INSTRUCTION,
+        generationConfig: { temperature, topP, maxOutputTokens: 1200 }
+      },
+      { timeout: 180000 }
+    );
 
-    let timeoutId;
-    const streamTask = (async () => {
-      const result = await model.generateContentStream(prompt);
-      let accumulated = "";
-      for await (const chunk of result.stream) {
-        const chunkText = chunk.text();
-        if (chunkText) {
-          accumulated += chunkText;
-          if (bodyEl) bodyEl.textContent = accumulated;
-          if (badgeEl) badgeEl.textContent = "Gemini AI (Streaming)";
-        }
+    const result = await model.generateContentStream(prompt);
+    let accumulated = "";
+    for await (const chunk of result.stream) {
+      const chunkText = chunk.text();
+      if (chunkText) {
+        accumulated += chunkText;
+        if (bodyEl) bodyEl.textContent = accumulated;
+        if (badgeEl) badgeEl.textContent = "Gemini AI (Streaming)";
       }
-      if (!accumulated.trim()) {
-        throw new Error("Gemini AI mengembalikan respons kosong.");
-      }
-      return accumulated;
-    })();
-    const accumulated = await Promise.race([
-      streamTask,
-      new Promise((_, reject) => {
-        timeoutId = window.setTimeout(
-          () => reject(new Error("Permintaan Gemini melewati batas 60 detik. Periksa aktivasi Firebase AI Logic API, App Check, dan koneksi jaringan.")),
-          60000
-        );
-      })
-    ]).finally(() => window.clearTimeout(timeoutId));
+    }
+    if (!accumulated.trim()) {
+      throw new Error("Gemini AI mengembalikan respons kosong. Periksa AI monitoring untuk detail permintaan.");
+    }
     if (badgeEl) badgeEl.textContent = "Gemini AI Aktif";
     setBanner("ready", "Koneksi Firebase AI Logic + App Check berhasil dan respons Gemini diterima.");
     return accumulated;
