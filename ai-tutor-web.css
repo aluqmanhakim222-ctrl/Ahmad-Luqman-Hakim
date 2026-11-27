@@ -360,3 +360,37 @@ details.config-box summary {
   font-weight: 700;
   color: #073D2C;
 }
+
+
+/* Audio narration controls: Web Speech API (Indonesian) */
+.audio-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: 8px 0 10px;
+}
+.audio-btn, .audio-stop-btn {
+  border-radius: 9px;
+  padding: 8px 11px;
+  min-height: 36px;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+}
+.audio-btn {
+  background: #0D5C43;
+  color: #FAF7F0;
+  border: 1px solid #C6922C;
+}
+.audio-stop-btn {
+  background: #F1EBDD;
+  color: #5A3F06;
+  border: 1px solid #C7BCA5;
+}
+.audio-btn:hover, .audio-stop-btn:hover { transform: translateY(-1px); }
+.audio-btn:focus-visible, .audio-stop-btn:focus-visible {
+  outline: 3px solid #E0B354;
+  outline-offset: 2px;
+}
+.output-audio-controls { margin: 0 0 9px; }
