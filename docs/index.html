@@ -768,6 +768,25 @@
       }, 6500);
     });
   </script>
+  <script>
+    // Fallback: jika konfigurasi Firebase belum diisi, jangan biarkan tombol
+    // AI tampak seperti fitur aktif. Tampilkan instruksi yang bisa ditindaklanjuti.
+    window.addEventListener('DOMContentLoaded', function () {
+      var status = document.getElementById('ai-status-banner');
+      var buttons = ['btn-ai-case','btn-ai-analyze','btn-ai-feedback','btn-ai-quiz','btn-ai-ask'];
+      if (status && /Menunggu konfigurasi/.test(status.textContent)) {
+        status.setAttribute('role','status');
+        status.setAttribute('aria-live','polite');
+        buttons.forEach(function(id) {
+          var b=document.getElementById(id);
+          if (b) b.title='AI belum aktif: lengkapi Firebase Web App + App Check atau backend proxy.';
+        });
+      }
+      document.querySelectorAll('a[href^="/"]').forEach(function(a) {
+        a.href = './' + a.getAttribute('href').replace(/^\\/+/, '');
+      });
+    });
+  </script>
   <script type="module" src="./ai-tutor-web.js"></script>
 </body>
 </html>
