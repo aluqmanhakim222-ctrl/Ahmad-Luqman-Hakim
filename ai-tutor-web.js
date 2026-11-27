@@ -661,6 +661,55 @@ function renderQuiz() {
   });
 }
 
+function speakIndonesianText(text, buttonId) {
+  const cleanText = String(text || "")
+    .replace(/\*{1,3}|_{1,3}|\x60{1,3}/g, "")
+    .replace(/^\s*[-#>]+\s*/gm, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!cleanText) {
+    setBanner("error", "Belum ada teks yang dapat dibacakan.");
+    return;
+  }
+  if (!("speechSynthesis" in window) || !("SpeechSynthesisUtterance" in window)) {
+    setBanner("error", "Fitur audio teks tidak didukung browser ini. Coba gunakan Chrome atau Edge versi terbaru.");
+    return;
+  }
+
+  window.speechSynthesis.cancel();
+  const utterance = new SpeechSynthesisUtterance(cleanText.slice(0, 12000));
+  utterance.lang = "id-ID";
+  utterance.rate = 0.95;
+  utterance.pitch = 1;
+  const voices = window.speechSynthesis.getVoices();
+  const indonesianVoice = voices.find((voice) => /^id(-|$)/i.test(voice.lang));
+  if (indonesianVoice) utterance.voice = indonesianVoice;
+
+  utterance.onstart = () => {
+    const button = el(buttonId);
+    if (button) button.textContent = "🔊 Sedang Membacakan...";
+  };
+  utterance.onend = () => {
+    const button = el(buttonId);
+    if (button) button.textContent = buttonId === "btn-speak-object" ? "🔊 Dengarkan Penjelasan" : "🔊 Bacakan Jawaban";
+  };
+  utterance.onerror = () => {
+    const button = el(buttonId);
+    if (button) button.textContent = buttonId === "btn-speak-object" ? "🔊 Dengarkan Penjelasan" : "🔊 Bacakan Jawaban";
+    setBanner("error", "Audio tidak dapat diputar. Periksa pengaturan suara browser/perangkat.");
+  };
+  window.speechSynthesis.speak(utterance);
+}
+
+function stopIndonesianAudio() {
+  if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+  const objectButton = el("btn-speak-object");
+  const outputButton = el("btn-speak-output");
+  if (objectButton) objectButton.textContent = "🔊 Dengarkan Penjelasan";
+  if (outputButton) outputButton.textContent = "🔊 Bacakan Jawaban";
+}
+
 function updateSelectedObjectUI(objId) {
   state.selectedObjectId = objId || "";
   const info = OBJECT_CATALOG[state.selectedObjectId];
@@ -783,6 +832,15 @@ function initWebAiTutor() {
   el("web-obj-open-tutor")?.addEventListener("click", () => {
     openDrawer(state.selectedObjectId);
   });
+  el("btn-speak-object")?.addEventListener("click", () => {
+    const info = OBJECT_CATALOG[state.selectedObjectId];
+    if (info) speakIndonesianText(info.title + ". " + info.category + ". " + info.desc, "btn-speak-object");
+  });
+  el("btn-stop-audio")?.addEventListener("click", stopIndonesianAudio);
+  el("btn-speak-output")?.addEventListener("click", () => {
+    speakIndonesianText(el("ai-output-text")?.textContent || "", "btn-speak-output");
+  });
+  el("btn-stop-output-audio")?.addEventListener("click", stopIndonesianAudio);
 
   el("ai-tutor-close")?.addEventListener("click", closeDrawer);
   el("ai-tutor-backdrop")?.addEventListener("click", closeDrawer);
