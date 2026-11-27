@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>PAI Immersive Learning — Ruang Kelas Virtual 3D &amp; AI Tutor PAI</title>
+  <link rel="stylesheet" href="./ai-tutor-web.css" />
+  <script src="https://aframe.io/releases/1.6.0/aframe.min.js" onerror="loadBackupAframe()"></script>
+  <script>
+    function loadBackupAframe() {
+      if (window.AFRAME) return;
+      var s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/aframe@1.6.0/dist/aframe.min.js';
+      s.onload = function() {
+        registerCustomAframeComponents();
+      };
+      s.onerror = function() {
+        var el = document.getElementById('loading-text');
+        if (el) el.textContent = 'Gagal memuat mesin WebGL A-Frame. Periksa koneksi internet perangkat.';
+      };
+      document.head.appendChild(s);
+    }
+
+    function registerCustomAframeComponents() {
+      if (!window.AFRAME) return;
+      if (AFRAME.components['pai-fpv-mover']) return;
+
+      // Komponen First-Person Movement (Sentuh D-Pad + WASD/Panah) + Batas Ruangan
+      AFRAME.registerComponent('pai-fpv-mover', {
+        schema: { speed: { type: 'number', default: 2.8 } },
+        init: function() {
+          this.keys = {};
+          this.touchMove = { forward: 0, strafe: 0 };
+          this.targetPos = null;
+          this.dir = new THREE.Vector3();
+          this.right = new THREE.Vector3();
+          this.up = new THREE.Vector3(0, 1, 0);
+
+          window.addEventListener('keydown', (e) => {
+            var target = e.target;
+            var tag = target && target.tagName;
+            if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (target && target.isContentEditable)) {
+              return;
+            }
+            this.keys[e.code] = true;
+            this.targetPos = null;
+          });
+          window.addEventListener('keyup', (e) => {
+            this.keys[e.code] = false;
+          });
+          window.__paiMover = this;
+        },
+        tick: function(time, delta) {
+          var dt = Math.min((delta || 16) / 1000, 0.1);
+          var el = this.el;
+          var pos = el.object3D.position;
+
+          if (this.targetPos) {
+            var dx = this.targetPos.x - pos.x;
+            var dz = this.targetPos.z - pos.z;
+            var dist = Math.hypot(dx, dz);
+            if (dist < 0.08) {
+              this.targetPos = null;
+            } else {
+              var step = Math.min(dist, 3.6 * dt);
+              pos.x += (dx / dist) * step;
+              pos.z += (dz / dist) * step;
+              this.clampRoom(pos);
+              return;
+            }
+          }
+
+          var f = this.touchMove.forward;
+          var s = this.touchMove.strafe;
+          if (this.keys['KeyW'] || this.keys['ArrowUp']) f += 1;
+          if (this.keys['KeyS'] || this.keys['ArrowDown']) f -= 1;
+          if (this.keys['KeyD'] || this.keys['ArrowRight']) s += 1;
+          if (this.keys['KeyA'] || this.keys['ArrowLeft']) s -= 1;
+
+          if (f === 0 && s === 0) return;
+
+          var cam = el.querySelector('[camera]');
+          if (!cam) return;
+          var camObj = cam.getObject3D('camera') || cam.object3D;
+          camObj.getWorldDirection(this.dir);
+          this.dir.y = 0;
+          if (this.dir.lengthSq() > 0.0001) this.dir.normalize();
+          this.right.crossVectors(this.dir, this.up).normalize();
+
+          var speed = this.data.speed * dt;
+          pos.x += (this.dir.x * f + this.right.x * s) * speed;
+          pos.z += (this.dir.z * f + this.right.z * s) * speed;
+          this.clampRoom(pos);
+        },
+        clampRoom: function(pos) {
+          pos.x = Math.max(-5.1, Math.min(5.1, pos.x));
+          pos.z = Math.max(-4.1, Math.min(5.1, pos.z));
+          pos.y = 1.6;
+        }
+      });
+
+      // Komponen Interaktif untuk memilih objek 3D via Mouse / Sentuh
+      AFRAME.registerComponent('pai-interactable', {
+        schema: {
+          objId: { type: 'string' },
+          label: { type: 'string' },
+          approachX: { type: 'number', default: 0 },
+          approachZ: { type: 'number', default: 0 }
+        },
+        init: function() {
+          this.el.addEventListener('click', () => {
+            selectSceneObject(
+              this.data.objId,
+              this.data.label,
+              this.data.approachX,
+              this.data.approachZ
+            );
+          });
+        }
+      });
+    }
+
+    registerCustomAframeComponents();
+    window.addEventListener('DOMContentLoaded', function() {
+      registerCustomAframeComponents();
+      generateSceneTextures();
+    });
+  </script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #073D2C; color: #FAF7F0; }
+    #viewport { position: relative; width: 100%; height: 100%; }
+    a-scene { width: 100%; height: 100%; display: block; touch-action: none; user-select: none; -webkit-user-select: none; }
+
+    #loading-overlay {
+      position: absolute; inset: 0; z-index: 40;
+      background: linear-gradient(160deg, #073D2C 0%, #0D5C43 100%);
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      padding: 20px; text-align: center; transition: opacity 0.35s ease;
+    }
+    .spinner {
+      width: 38px; height: 38px; border: 3px solid rgba(250,247,240,0.25);
+      border-top-color: #E0B354; border-radius: 50%; animation: spin 0.9s linear infinite;
+      margin-bottom: 12px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .hud-top {
+      position: absolute; top: 10px; left: 10px; right: 10px; z-index: 20;
+      display: flex; justify-content: space-between; align-items: center; gap: 8px;
+      pointer-events: none;
+    }
+    .pill {
+      pointer-events: auto;
+      background: rgba(7, 61, 44, 0.88);
+      border: 1px solid #C6922C;
+      color: #FAF7F0;
+      padding: 6px 11px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 600;
+      backdrop-filter: blur(4px);
+    }
+    #btn-enter-vr {
+      display: none;
+      pointer-events: auto;
+      background: #C6922C;
+      color: #16241F;
+      border: none;
+      padding: 8px 14px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 800;
+      cursor: pointer;
+      box-shadow: 0 3px 10px rgba(0,0,0,0.35);
+    }
+
+    #info-hud {
+      position: absolute; top: 48px; left: 50%; transform: translateX(-50%);
+      z-index: 22; background: rgba(22, 36, 31, 0.92); color: #F8ECD1;
+      border: 1px solid #C6922C; padding: 6px 14px; border-radius: 10px;
+      font-size: 12px; font-weight: 600; display: none; text-align: center; max-width: 88%;
+      pointer-events: none;
+    }
+
+    .fpv-controls {
+      position: absolute; bottom: 12px; left: 12px; z-index: 25;
+      display: grid;
+      grid-template-columns: 42px 42px 42px;
+      grid-template-rows: 42px 42px;
+      gap: 5px;
+      pointer-events: auto;
+    }
+    .move-btn {
+      width: 42px; height: 42px;
+      background: rgba(7, 61, 44, 0.85);
+      border: 1.5px solid #E0B354;
+      color: #FAF7F0;
+      border-radius: 11px;
+      font-size: 16px;
+      font-weight: 700;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+      touch-action: none;
+    }
+    .move-btn:active { background: #C6922C; color: #16241F; }
+    .move-spacer { visibility: hidden; }
+
+    .hud-right-hint {
+      position: absolute; bottom: 12px; right: 12px; z-index: 25;
+      display: flex; flex-direction: column; align-items: flex-end; gap: 6px;
+      pointer-events: none;
+    }
+    .quick-btn {
+      pointer-events: auto;
+      background: rgba(250, 247, 240, 0.92);
+      color: #073D2C;
+      border: 1px solid #0D5C43;
+      padding: 6px 10px;
+      border-radius: 9px;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .hint-box {
+      background: rgba(22, 36, 31, 0.78);
+      color: #F8ECD1;
+      padding: 5px 9px;
+      border-radius: 8px;
+      font-size: 10px;
+      text-align: right;
+    }
+  </style>
+
+  <script>
+    function generateSceneTextures() {
+      // 1. Tekstur Papan Tulis Interaktif
+      var board = document.getElementById('board-tex');
+      if (board) {
+        var bctx = board.getContext('2d');
+        bctx.fillStyle = '#073D2C';
+        bctx.fillRect(0, 0, 1024, 512);
+        bctx.strokeStyle = '#C6922C';
+        bctx.lineWidth = 10;
+        bctx.strokeRect(14, 14, 996, 484);
+
+        bctx.fillStyle = '#E0B354';
+        bctx.font = 'bold 42px system-ui';
+        bctx.textAlign = 'center';
+        bctx.fillText('STRATEGI PEMBELAJARAN PAI', 512, 92);
+
+        bctx.fillStyle = '#FAF7F0';
+        bctx.font = '600 28px system-ui';
+        bctx.fillText('1. Analisis Gaya Belajar: Visual • Auditori • Kinestetik', 512, 180);
+        bctx.fillText('2. Konteks Kearifan Lokal: Pesantren • Gotong Royong • Batik', 512, 240);
+        bctx.fillText('3. Strategi Aktif: PBL • PjBL • CTL • Cooperative • Demonstrasi', 512, 300);
+
+        bctx.fillStyle = '#F8ECD1';
+        bctx.font = 'italic 24px system-ui';
+        bctx.fillText('Sentuh papan atau objek lain di ruang kelas 3D untuk eksplorasi', 512, 412);
+      }
+
+      // 2. Tekstur Batik Kawung & Parang Emas
+      var batik = document.getElementById('batik-tex');
+      if (batik) {
+        var kctx = batik.getContext('2d');
+        kctx.fillStyle = '#0D5C43';
+        kctx.fillRect(0, 0, 512, 512);
+        kctx.strokeStyle = '#E0B354';
+        kctx.lineWidth = 4;
+        for (var x = 48; x < 512; x += 96) {
+          for (var y = 48; y < 512; y += 96) {
+            kctx.beginPath(); kctx.ellipse(x - 22, y, 20, 12, 0, 0, Math.PI * 2); kctx.stroke();
+            kctx.beginPath(); kctx.ellipse(x + 22, y, 20, 12, 0, 0, Math.PI * 2); kctx.stroke();
+            kctx.beginPath(); kctx.ellipse(x, y - 22, 12, 20, 0, 0, Math.PI * 2); kctx.stroke();
+            kctx.beginPath(); kctx.ellipse(x, y + 22, 12, 20, 0, 0, Math.PI * 2); kctx.stroke();
+            kctx.fillStyle = '#FAF7F0';
+            kctx.beginPath(); kctx.arc(x, y, 6, 0, Math.PI * 2); kctx.fill();
+          }
+        }
+      }
+
+      // 3. Tekstur Lantai Kayu Hangat
+      var wood = document.getElementById('wood-tex');
+      if (wood) {
+        var wctx = wood.getContext('2d');
+        wctx.fillStyle = '#C9B38C';
+        wctx.fillRect(0, 0, 256, 256);
+        wctx.strokeStyle = '#B39B73';
+        wctx.lineWidth = 2;
+        for (var row = 0; row < 256; row += 32) {
+          wctx.beginPath(); wctx.moveTo(0, row); wctx.lineTo(256, row); wctx.stroke();
+        }
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="viewport">
+    <div id="loading-overlay">
+      <div class="spinner"></div>
+      <div id="loading-text" style="font-size:13px;font-weight:600;color:#F8ECD1;">
+        Memuat Ruang Kelas Virtual 3D A-Frame...
+      </div>
+    </div>
+
+    <div class="hud-top">
+      <div class="pill" id="vr-status-pill">First-Person 3D • Sentuh &amp; Jelajah</div>
+      <button id="btn-enter-vr" onclick="enterWebXrVr()">Enter VR</button>
+    </div>
+
+    <div id="info-hud"></div>
+
+    <!-- Kartu Ringkas Objek 3D Terpilih di Browser -->
+    <aside id="web-object-card" aria-live="polite">
+      <div class="obj-card-header">
+        <div>
+          <div class="obj-card-title" id="web-obj-title">Objek Virtual</div>
+          <span class="obj-card-cat" id="web-obj-cat">Laboratorium PAI</span>
+        </div>
+        <button type="button" class="obj-card-close" id="web-obj-close" aria-label="Tutup kartu objek">✕</button>
+      </div>
+      <p class="obj-card-desc" id="web-obj-desc"></p>
+      <button type="button" class="obj-card-action" id="web-obj-open-tutor">Konsultasikan Objek Ini ke AI Tutor PAI</button>
+    </aside>
+
+    <!-- A-Frame 3D Scene (Bukan Gambar Statis) -->
+    <a-scene
+      id="pai-aframe-scene"
+      embedded
+      vr-mode-ui="enabled: false"
+      renderer="antialias: true; colorManagement: true"
+      cursor="rayOrigin: mouse; fuse: false"
+      raycaster="objects: .clickable; far: 25"
+    >
+      <a-assets>
+        <canvas id="board-tex" width="1024" height="512"></canvas>
+        <canvas id="batik-tex" width="512" height="512"></canvas>
+        <canvas id="wood-tex" width="256" height="256"></canvas>
+      </a-assets>
+
+      <a-sky color="#DFECE5"></a-sky>
+
+      <!-- Pencahayaan Ruang Madrasah -->
+      <a-entity light="type: ambient; color: #FFF9EC; intensity: 0.75"></a-entity>
+      <a-entity light="type: directional; color: #FFF1CC; intensity: 0.85" position="3 6 4"></a-entity>
+      <a-entity light="type: point; color: #FFD98E; intensity: 0.7; distance: 12" position="0 4.1 -2.5"></a-entity>
+      <a-entity light="type: point; color: #FFD98E; intensity: 0.55; distance: 10" position="0 4.1 2.0"></a-entity>
+
+      <!-- Kamera First-Person (Tinggi Mata 1.6m) -->
+      <a-entity id="fpv-rig" position="0 1.6 4.1" pai-fpv-mover="speed: 2.9">
+        <a-entity
+          id="fpv-camera"
+          camera
+          look-controls="touchEnabled: true; mouseEnabled: true; magicWindowTrackingEnabled: false"
+        ></a-entity>
+      </a-entity>
+
+      <!-- Lantai Kayu, Karpet Emerald & Plafon -->
+      <a-plane position="0 0 0" rotation="-90 0 0" width="12" height="12" src="#wood-tex" repeat="6 6"></a-plane>
+      <a-box position="0 0.01 -0.3" width="5.4" height="0.02" depth="7.4" color="#0D5C43"></a-box>
+      <a-box position="0 0.015 -0.3" width="5.0" height="0.02" depth="7.0" color="#094A35"></a-box>
+      <a-plane position="0 5.0 0" rotation="90 0 0" width="12" height="12" color="#EFE8D8"></a-plane>
+
+      <!-- Lampu Gantung Madrasah -->
+      <a-entity position="0 4.35 -2.5">
+        <a-cylinder radius="0.02" height="1.3" position="0 0.3 0" color="#C6922C"></a-cylinder>
+        <a-octahedron radius="0.22" color="#FFE08A" material="emissive: #E0B354; emissiveIntensity: 0.6"></a-octahedron>
+      </a-entity>
+      <a-entity position="0 4.35 2.0">
+        <a-cylinder radius="0.02" height="1.3" position="0 0.3 0" color="#C6922C"></a-cylinder>
+        <a-octahedron radius="0.22" color="#FFE08A" material="emissive: #E0B354; emissiveIntensity: 0.6"></a-octahedron>
+      </a-entity>
+
+      <!-- Dinding Ivory & Wainscot Emerald -->
+      <a-box position="0 2.5 -5.4" width="12.2" height="5" depth="0.2" color="#FAF7F0"></a-box>
+      <a-box position="0 0.55 -5.28" width="12" height="1.1" depth="0.06" color="#0D5C43"></a-box>
+
+      <a-box position="-6.0 2.5 0" width="0.2" height="5" depth="12" color="#F3EDE0"></a-box>
+      <a-box position="-5.88 0.55 0" width="0.06" height="1.1" depth="12" color="#0D5C43"></a-box>
+
+      <a-box position="6.0 2.5 0" width="0.2" height="5" depth="12" color="#F3EDE0"></a-box>
+      <a-box position="5.88 0.55 0" width="0.06" height="1.1" depth="12" color="#0D5C43"></a-box>
+
+      <a-box position="0 2.5 5.8" width="12.2" height="5" depth="0.2" color="#F3EDE0"></a-box>
+
+      <!-- Ornamen Lengkungan Mihrab & Geometris Islami -->
+      <a-ring position="0 3.3 -5.22" radius-inner="1.8" radius-outer="1.96" theta-start="0" theta-length="180" color="#C6922C"></a-ring>
+      <a-octahedron position="-3.7 3.6 -5.2" radius="0.26" color="#C6922C"></a-octahedron>
+      <a-octahedron position="3.7 3.6 -5.2" radius="0.26" color="#C6922C"></a-octahedron>
+
+      <!-- OBJEK 1: PAPAN TULIS INTERAKTIF -->
+      <a-entity
+        id="obj_papan_tulis"
+        class="clickable"
+        position="0 2.15 -5.18"
+        pai-interactable="objId: papan_tulis; label: Papan Tulis Interaktif; approachX: 0; approachZ: -2.4"
+      >
+        <a-box width="4.7" height="2.0" depth="0.08" color="#C6922C"></a-box>
+        <a-plane position="0 0 0.055" width="4.45" height="1.8" src="#board-tex"></a-plane>
+      </a-entity>
+
+      <!-- Podium Guru & OBJEK 2: MUSHAF AL-QUR'AN -->
+      <a-box position="-1.1 0.48 -3.4" width="1.7" height="0.96" depth="0.8" color="#6B4423"></a-box>
+      <a-box position="-1.1 0.98 -3.4" width="1.82" height="0.06" depth="0.9" color="#4A2D14"></a-box>
+      <a-entity
+        id="obj_mushaf"
+        class="clickable"
+        position="-0.95 1.16 -3.35"
+        pai-interactable="objId: mushaf; label: Mushaf Al-Qur'an & Rehal; approachX: -0.95; approachZ: -1.75"
+      >
+        <a-box position="0 -0.09 0" width="0.52" height="0.1" depth="0.38" color="#4A2D14"></a-box>
+        <a-box position="-0.14 0.02 0" rotation="0 0 18" width="0.27" height="0.05" depth="0.35" color="#FAF7F0"></a-box>
+        <a-box position="0.14 0.02 0" rotation="0 0 -18" width="0.27" height="0.05" depth="0.35" color="#FAF7F0"></a-box>
+        <a-torus position="0 0.25 0" radius="0.36" radius-tubular="0.015" color="#E0B354" animation="property: rotation; to: 0 360 0; loop: true; dur: 6500"></a-torus>
+        <a-text value="Mushaf Al-Qur'an" align="center" color="#073D2C" width="2.2" position="0 0.48 0"></a-text>
+      </a-entity>
+
+      <!-- Avatar Ustadz / Dosen PAI -->
+      <a-entity position="-2.35 0 -3.55">
+        <a-cylinder position="0 0.72 0" radius="0.25" height="1.15" color="#0D5C43"></a-cylinder>
+        <a-sphere position="0 1.48 0" radius="0.21" color="#E5BE9B"></a-sphere>
+        <a-cylinder position="0 1.67 0" radius="0.2" height="0.14" color="#16241F"></a-cylinder>
+        <a-text value="Dosen PAI" align="center" color="#16241F" width="2.2" position="0 2.02 0"></a-text>
+      </a-entity>
+
+      <!-- OBJEK 3: RAK KITAB & TRADISI PESANTREN -->
+      <a-entity
+        id="obj_kitab_pesantren"
+        class="clickable"
+        position="2.45 0 -3.55"
+        pai-interactable="objId: kitab_pesantren; label: Kitab & Tradisi Pesantren; approachX: 2.2; approachZ: -1.8"
+      >
+        <a-box position="0 0.65 0" width="1.15" height="1.3" depth="0.52" color="#5C3A21"></a-box>
+        <a-box position="-0.3 0.92 0.05" width="0.12" height="0.32" depth="0.32" color="#C6922C"></a-box>
+        <a-box position="-0.12 0.94 0.05" width="0.12" height="0.36" depth="0.32" color="#0D5C43"></a-box>
+        <a-box position="0.06 0.90 0.05" width="0.12" height="0.28" depth="0.32" color="#7A3E1D"></a-box>
+        <a-box position="0.26 0.93 0.05" width="0.14" height="0.34" depth="0.32" color="#1A7A5B"></a-box>
+        <a-text value="Kitab Pesantren" align="center" color="#073D2C" width="2.4" position="0 1.58 0"></a-text>
+      </a-entity>
+
+      <!-- OBJEK 4: PANEL BATIK & KEARIFAN LOKAL -->
+      <a-entity
+        id="obj_panel_batik"
+        class="clickable"
+        position="-5.84 2.25 -0.8"
+        rotation="0 90 0"
+        pai-interactable="objId: panel_batik; label: Panel Batik & Kearifan Lokal; approachX: -3.2; approachZ: -0.8"
+      >
+        <a-box width="2.7" height="1.75" depth="0.08" color="#C6922C"></a-box>
+        <a-plane position="0 0 0.055" width="2.48" height="1.52" src="#batik-tex"></a-plane>
+        <a-text value="Panel Batik &amp; Kearifan Lokal" align="center" color="#073D2C" width="3.2" position="0 -1.08 0.05"></a-text>
+      </a-entity>
+
+      <!-- Jendela Kisi Madrasah di Dinding Kanan -->
+      <a-entity position="5.84 2.35 -0.8" rotation="0 -90 0">
+        <a-box width="2.8" height="1.8" depth="0.08" color="#6B4423"></a-box>
+        <a-plane position="0 0 0.05" width="2.52" height="1.52" color="#CBE6D8"></a-plane>
+        <a-box position="0 0 0.06" width="0.06" height="1.52" depth="0.02" color="#6B4423"></a-box>
+        <a-box position="0 0 0.06" width="2.52" height="0.06" depth="0.02" color="#6B4423"></a-box>
+      </a-entity>
+
+      <!-- OBJEK 5: KLASTER MEJA, KURSI & 4 SISWA BERAGAM -->
+      <a-entity
+        id="obj_meja_siswa"
+        class="clickable"
+        position="0 0 0.3"
+        pai-interactable="objId: meja_siswa; label: Klaster Meja &amp; 4 Siswa; approachX: 0; approachZ: 2.3"
+      >
+        <a-box position="-1.45 0.65 0" width="1.55" height="0.07" depth="0.85" color="#8B5A2B"></a-box>
+        <a-cylinder position="-2.1 0.32 -0.32" radius="0.04" height="0.64" color="#4A2D14"></a-cylinder>
+        <a-cylinder position="-0.8 0.32 0.32" radius="0.04" height="0.64" color="#4A2D14"></a-cylinder>
+        <a-box position="-1.8 0.72 0" width="0.3" height="0.04" depth="0.22" color="#FAF7F0"></a-box>
+        <a-box position="-1.1 0.72 0" width="0.3" height="0.04" depth="0.22" color="#F8ECD1"></a-box>
+
+        <a-cylinder position="-1.8 0.56 0.72" radius="0.2" height="0.92" color="#1A7A5B"></a-cylinder>
+        <a-sphere position="-1.8 1.14 0.72" radius="0.17" color="#E5BE9B"></a-sphere>
+        <a-text value="Siswa Visual" align="center" color="#16241F" width="2.0" position="-1.8 1.48 0.72"></a-text>
+
+        <a-cylinder position="-1.1 0.56 0.72" radius="0.2" height="0.92" color="#C6922C"></a-cylinder>
+        <a-sphere position="-1.1 1.14 0.72" radius="0.17" color="#E5BE9B"></a-sphere>
+        <a-text value="Siswa Auditori" align="center" color="#16241F" width="2.0" position="-1.1 1.48 0.72"></a-text>
+
+        <a-box position="1.45 0.65 0" width="1.55" height="0.07" depth="0.85" color="#8B5A2B"></a-box>
+        <a-cylinder position="0.8 0.32 -0.32" radius="0.04" height="0.64" color="#4A2D14"></a-cylinder>
+        <a-cylinder position="2.1 0.32 0.32" radius="0.04" height="0.64" color="#4A2D14"></a-cylinder>
+        <a-box position="1.1 0.72 0" width="0.3" height="0.04" depth="0.22" color="#FAF7F0"></a-box>
+        <a-box position="1.8 0.72 0" width="0.3" height="0.04" depth="0.22" color="#F8ECD1"></a-box>
+
+        <a-cylinder position="1.1 0.56 0.72" radius="0.2" height="0.92" color="#0D5C43"></a-cylinder>
+        <a-sphere position="1.1 1.14 0.72" radius="0.17" color="#E5BE9B"></a-sphere>
+        <a-text value="Siswa Kinestetik" align="center" color="#16241F" width="2.0" position="1.1 1.48 0.72"></a-text>
+
+        <a-cylinder position="1.8 0.56 0.72" radius="0.2" height="0.92" color="#4A6B5D"></a-cylinder>
+        <a-sphere position="1.8 1.14 0.72" radius="0.17" color="#E5BE9B"></a-sphere>
+        <a-text value="Akademik Beragam" align="center" color="#16241F" width="2.0" position="1.8 1.48 0.72"></a-text>
+      </a-entity>
+
+      <!-- Cincin Penyorot Objek Terpilih -->
+      <a-torus
+        id="selection-halo"
+        visible="false"
+        rotation="90 0 0"
+        radius="0.85"
+        radius-tubular="0.025"
+        color="#E0B354"
+        material="emissive: #E0B354; emissiveIntensity: 0.75"
+        animation="property: scale; from: 0.92 0.92 0.92; to: 1.08 1.08 1.08; dir: alternate; loop: true; dur: 900"
+      ></a-torus>
+    </a-scene>
+
+    <!-- Kontrol Navigasi First-Person (Sentuh/Mouse) -->
+    <div class="fpv-controls" aria-label="Navigasi First Person">
+      <div class="move-spacer"></div>
+      <button type="button" class="move-btn" onpointerdown="setMove(1,0)" onpointerup="setMove(0,0)" onpointerleave="setMove(0,0)" onpointercancel="setMove(0,0)" title="Maju">▲</button>
+      <div class="move-spacer"></div>
+      <button type="button" class="move-btn" onpointerdown="setMove(0,-1)" onpointerup="setMove(0,0)" onpointerleave="setMove(0,0)" onpointercancel="setMove(0,0)" title="Kiri">◀</button>
+      <button type="button" class="move-btn" onpointerdown="setMove(-1,0)" onpointerup="setMove(0,0)" onpointerleave="setMove(0,0)" onpointercancel="setMove(0,0)" title="Mundur">▼</button>
+      <button type="button" class="move-btn" onpointerdown="setMove(0,1)" onpointerup="setMove(0,0)" onpointerleave="setMove(0,0)" onpointercancel="setMove(0,0)" title="Kanan">▶</button>
+    </div>
+
+    <div class="hud-right-hint">
+      <button type="button" class="tutor-hud-btn" onclick="openAiTutorFromVr()">AI Tutor PAI</button>
+      <button type="button" class="quick-btn" onclick="resetFirstPersonPosition()">Reset Posisi Awal</button>
+      <div class="hint-box">
+        Geser layar: lihat sekeliling<br/>
+        Panah / WASD: berjalan mendekati objek<br/>
+        Ketuk objek 3D: pilih &amp; dekati
+      </div>
+    </div>
+  </div>
+
+  <!-- Backdrop & Panel AI Tutor PAI (Versi Web GitHub Pages) -->
+  <div id="ai-tutor-backdrop"></div>
+  <aside id="ai-tutor-drawer" aria-label="Panel AI Tutor PAI">
+    <div class="tutor-header">
+      <div>
+        <h2>AI Tutor PAI</h2>
+        <div class="tutor-subtitle" id="tutor-context-obj">Objek VR Terpilih: Eksplorasi Umum Ruang Kelas</div>
+      </div>
+      <button type="button" class="tutor-close-btn" id="ai-tutor-close" aria-label="Tutup panel AI Tutor">✕</button>
+    </div>
+
+    <div class="tutor-body">
+      <div id="ai-status-banner" class="status-banner">Memeriksa konfigurasi Firebase AI Logic...</div>
+
+      <section class="tutor-section">
+        <label class="field-label" for="tutor-topic">Materi / Topik Pembelajaran PAI</label>
+        <input id="tutor-topic" class="tutor-input" type="text" value="Akhlak Mulia, Muamalah, dan Kepedulian Sosial dalam PAI" />
+
+        <label class="field-label" for="tutor-learner">Karakteristik Peserta Didik</label>
+        <input id="tutor-learner" class="tutor-input" type="text" value="Siswa beragam: Visual, Auditori, Kinestetik &amp; Akademik Heterogen" />
+
+        <label class="field-label" for="tutor-class-cond">Kondisi Ruang Kelas</label>
+        <input id="tutor-class-cond" class="tutor-input" type="text" value="32 siswa madrasah/sekolah, diskusi kelompok &amp; proyektor tersedia" />
+
+        <div class="field-label">Integrasi Kearifan Lokal</div>
+        <div class="chip-group">
+          <button type="button" class="chip-btn" data-wisdom="Tradisi Pesantren">Tradisi Pesantren</button>
+          <button type="button" class="chip-btn" data-wisdom="Gotong Royong">Gotong Royong</button>
+          <button type="button" class="chip-btn" data-wisdom="Batik &amp; Budaya Lokal">Batik &amp; Budaya Lokal</button>
+          <button type="button" class="chip-btn" data-wisdom="Kehidupan Masyarakat Sekitar">Masyarakat Sekitar</button>
+        </div>
+
+        <div class="field-label">Pilihan Strategi Pembelajaran</div>
+        <div class="chip-group">
+          <button type="button" class="chip-btn" data-strategy="Problem-Based Learning (PBL)">PBL</button>
+          <button type="button" class="chip-btn" data-strategy="Project-Based Learning (PjBL)">PjBL</button>
+          <button type="button" class="chip-btn" data-strategy="Cooperative Learning">Cooperative</button>
+          <button type="button" class="chip-btn" data-strategy="Contextual Teaching and Learning (CTL)">CTL</button>
+          <button type="button" class="chip-btn" data-strategy="Demonstrasi">Demonstrasi</button>
+        </div>
+
+        <label class="field-label" for="tutor-rationale">Alasan / Rancangan Mahasiswa (untuk Analisis &amp; Umpan Balik)</label>
+        <textarea id="tutor-rationale" class="tutor-textarea" placeholder="Tuliskan alasan Anda memilih strategi di atas untuk dianalisis dan diberi umpan balik AI Tutor..."></textarea>
+      </section>
+
+      <section class="tutor-section">
+        <div class="field-label">Aksi AI Tutor PAI (Gemini API Langsung)</div>
+        <div class="action-grid">
+          <button type="button" id="btn-ai-case" class="primary-btn">Generate Studi Kasus</button>
+          <button type="button" id="btn-ai-analyze" class="primary-btn">Analisis Strategi</button>
+          <button type="button" id="btn-ai-feedback" class="outline-btn">Umpan Balik Pilihan</button>
+          <button type="button" id="btn-ai-quiz" class="gold-btn">Generate Kuis (5 Soal)</button>
+        </div>
+
+        <label class="field-label" for="tutor-question">Tanya AI Tutor PAI</label>
+        <textarea id="tutor-question" class="tutor-textarea" placeholder="Ajukan pertanyaan tentang Strategi Pembelajaran PAI, sintaks metode, atau adaptasi kearifan lokal..."></textarea>
+        <button type="button" id="btn-ai-ask" class="primary-btn full-width">Kirim Pertanyaan ke AI Tutor</button>
+      </section>
+
+      <section id="ai-output-card" class="output-card" style="display:none;">
+        <div class="output-card-head">
+          <span class="output-card-title" id="ai-output-title">Hasil AI Tutor PAI</span>
+          <span class="output-badge" id="ai-output-badge">Siap</span>
+        </div>
+        <div id="ai-output-text" class="output-text"></div>
+        <div id="ai-quiz-container" style="display:none;"></div>
+      </section>
+
+      <section class="tutor-section">
+        <details class="config-box">
+          <summary>Pengaturan Koneksi Firebase AI Logic / Backend (Tanpa Secret Key)</summary>
+          <div style="display:flex;flex-direction:column;gap:7px;margin-top:9px;">
+            <div style="font-size:11px;color:#34443E;line-height:1.45;">
+              Disimpan hanya di browser lokal (localStorage). Jangan pernah menuliskan Gemini API Key rahasia di file HTML/JS.
+            </div>
+            <label class="field-label" for="cfg-project-id">Firebase Project ID</label>
+            <input id="cfg-project-id" class="tutor-input" type="text" placeholder="gen-lang-client-0358370863" />
+
+            <label class="field-label" for="cfg-api-key">Firebase Web API Key (Publik)</label>
+            <input id="cfg-api-key" class="tutor-input" type="text" placeholder="AIza... (dari Firebase Console -> Web App)" />
+
+            <label class="field-label" for="cfg-app-id">Firebase Web App ID</label>
+            <input id="cfg-app-id" class="tutor-input" type="text" placeholder="1:896427690268:web:..." />
+
+            <label class="field-label" for="cfg-recaptcha-key">reCAPTCHA Enterprise Site Key (App Check)</label>
+            <input id="cfg-recaptcha-key" class="tutor-input" type="text" placeholder="Site Key untuk domain GitHub Pages" />
+
+            <label class="field-label" for="cfg-backend-url">Atau URL Backend Proxy Aman (Opsional)</label>
+            <input id="cfg-backend-url" class="tutor-input" type="url" placeholder="https://.../pai-ai-tutor" />
+
+            <div class="action-grid" style="margin-top:4px;">
+              <button type="button" id="btn-save-config" class="primary-btn">Simpan di Browser</button>
+              <button type="button" id="btn-clear-config" class="outline-btn">Reset ke Default</button>
+            </div>
+          </div>
+        </details>
+      </section>
+    </div>
+  </aside>
+
+  <script>
+    var approachCoords = {
+      papan_tulis: { label: 'Papan Tulis Interaktif', x: 0, z: -2.4 },
+      mushaf: { label: "Mushaf Al-Qur'an & Rehal", x: -0.95, z: -1.75 },
+      kitab_pesantren: { label: 'Kitab & Tradisi Pesantren', x: 2.2, z: -1.8 },
+      panel_batik: { label: 'Panel Batik & Kearifan Lokal', x: -3.2, z: -0.8 },
+      meja_siswa: { label: 'Klaster Meja & 4 Siswa', x: 0, z: 2.3 }
+    };
+
+    function setMove(forward, strafe) {
+      if (window.__paiMover) {
+        window.__paiMover.targetPos = null;
+        window.__paiMover.touchMove.forward = forward;
+        window.__paiMover.touchMove.strafe = strafe;
+      }
+    }
+
+    function resetFirstPersonPosition() {
+      var rig = document.getElementById('fpv-rig');
+      if (rig && window.__paiMover) {
+        window.__paiMover.targetPos = { x: 0, z: 4.1 };
+        showHudMessage('Kembali ke posisi awal ruang kelas 3D');
+      }
+    }
+
+    window.__currentSelectedObjId = '';
+
+    function selectSceneObject(objId, label, approachX, approachZ) {
+      window.__currentSelectedObjId = objId || '';
+      var info = approachCoords[objId];
+      var displayName = label || (info ? info.label : objId);
+      var tx = (typeof approachX === 'number') ? approachX : (info ? info.x : 0);
+      var tz = (typeof approachZ === 'number') ? approachZ : (info ? info.z : 1.5);
+
+      var targetEl = document.getElementById('obj_' + objId);
+      var halo = document.getElementById('selection-halo');
+      if (targetEl && halo) {
+        var p = targetEl.getAttribute('position');
+        halo.setAttribute('position', { x: p.x, y: 0.08, z: p.z });
+        halo.setAttribute('visible', true);
+      }
+
+      if (window.__paiMover) {
+        window.__paiMover.targetPos = { x: tx, z: tz };
+      }
+
+      showHudMessage('Mendekati & memilih: ' + displayName);
+
+      if (window.AndroidBridge && window.AndroidBridge.onObjectSelected) {
+        window.AndroidBridge.onObjectSelected(objId);
+      }
+      if (window.paiWebTutor && window.paiWebTutor.onObjectSelectedInScene) {
+        window.paiWebTutor.onObjectSelectedInScene(objId);
+      }
+    }
+
+    function openAiTutorFromVr() {
+      var activeId = window.__currentSelectedObjId || '';
+      if (window.AndroidBridge && window.AndroidBridge.onOpenAiTutor) {
+        window.AndroidBridge.onOpenAiTutor(activeId);
+        showHudMessage('Membuka Pendamping AI Tutor PAI...');
+      } else if (window.paiWebTutor && window.paiWebTutor.open) {
+        window.paiWebTutor.open(activeId);
+      } else {
+        showHudMessage('Memuat panel AI Tutor PAI...');
+      }
+    }
+
+    function selectObject(objId) {
+      var info = approachCoords[objId];
+      if (info) {
+        selectSceneObject(objId, info.label, info.x, info.z);
+      } else {
+        selectSceneObject(objId, objId, 0, 1.5);
+      }
+    }
+
+    function showHudMessage(msg) {
+      var hud = document.getElementById('info-hud');
+      if (!hud) return;
+      hud.textContent = msg;
+      hud.style.display = 'block';
+      clearTimeout(window.__hudTimer);
+      window.__hudTimer = setTimeout(function() {
+        hud.style.display = 'none';
+      }, 2800);
+    }
+
+    async function checkWebXrSupport() {
+      var btn = document.getElementById('btn-enter-vr');
+      var pill = document.getElementById('vr-status-pill');
+      if (navigator.xr && navigator.xr.isSessionSupported) {
+        try {
+          var supported = await navigator.xr.isSessionSupported('immersive-vr');
+          if (supported && btn) {
+            btn.style.display = 'inline-block';
+            if (pill) pill.textContent = 'WebXR Siap • First-Person 3D';
+            return;
+          }
+        } catch (e) {}
+      }
+      if (btn) btn.style.display = 'none';
+      if (pill) pill.textContent = 'First-Person 3D • Sentuh & Jelajah';
+    }
+
+    async function enterWebXrVr() {
+      var scene = document.getElementById('pai-aframe-scene');
+      if (!scene) return;
+      try {
+        await scene.enterVR();
+      } catch (err) {
+        showHudMessage('Sesi VR tidak dapat dibuka. Tetap gunakan First-Person 3D.');
+      }
+    }
+
+    function hideLoadingOverlay() {
+      var overlay = document.getElementById('loading-overlay');
+      if (overlay && overlay.style.display !== 'none') {
+        overlay.style.opacity = '0';
+        setTimeout(function() { overlay.style.display = 'none'; }, 350);
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+      checkWebXrSupport();
+      var scene = document.getElementById('pai-aframe-scene');
+      if (scene) {
+        if (scene.hasLoaded) {
+          hideLoadingOverlay();
+        } else {
+          scene.addEventListener('loaded', hideLoadingOverlay);
+        }
+      }
+      setTimeout(function() {
+        hideLoadingOverlay();
+      }, 6500);
+    });
+  </script>
+  <script type="module" src="./ai-tutor-web.js"></script>
+</body>
+</html>
