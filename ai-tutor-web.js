@@ -188,7 +188,7 @@ function ensureAiClient() {
       state.appCheckInitialized = true;
     }
     state.firebaseInstance = app;
-    state.aiClient = getAI(app, { backend: new GoogleAIBackend() });
+    state.aiClient = getAI(app, { backend: new GoogleAIBackend(), useLimitedUseAppCheckTokens: true });
     state.lastEngineSignature = signature;
   }
 
@@ -294,19 +294,32 @@ async function runStreamingPrompt({ title, prompt, temperature = 0.75, topP = 0.
       generationConfig: { temperature, topP }
     });
 
-    const result = await model.generateContentStream(prompt);
-    let accumulated = "";
-    for await (const chunk of result.stream) {
-      const chunkText = chunk.text();
-      if (chunkText) {
-        accumulated += chunkText;
-        if (bodyEl) bodyEl.textContent = accumulated;
-        if (badgeEl) badgeEl.textContent = "Gemini AI (Streaming)";
+    let timeoutId;
+    const streamTask = (async () => {
+      const result = await model.generateContentStream(prompt);
+      let accumulated = "";
+      for await (const chunk of result.stream) {
+        const chunkText = chunk.text();
+        if (chunkText) {
+          accumulated += chunkText;
+          if (bodyEl) bodyEl.textContent = accumulated;
+          if (badgeEl) badgeEl.textContent = "Gemini AI (Streaming)";
+        }
       }
-    }
-    if (!accumulated.trim()) {
-      throw new Error("Gemini AI mengembalikan respons kosong.");
-    }
+      if (!accumulated.trim()) {
+        throw new Error("Gemini AI mengembalikan respons kosong.");
+      }
+      return accumulated;
+    })();
+    const accumulated = await Promise.race([
+      streamTask,
+      new Promise((_, reject) => {
+        timeoutId = window.setTimeout(
+          () => reject(new Error("Permintaan Gemini melewati batas 60 detik. Periksa aktivasi Firebase AI Logic API, App Check, dan koneksi jaringan.")),
+          60000
+        );
+      })
+    ]).finally(() => window.clearTimeout(timeoutId));
     if (badgeEl) badgeEl.textContent = "Gemini AI Aktif";
     setBanner("ready", "Koneksi Firebase AI Logic + App Check berhasil dan respons Gemini diterima.");
     return accumulated;
