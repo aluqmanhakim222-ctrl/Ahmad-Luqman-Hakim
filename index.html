@@ -2,7 +2,7 @@
 <html lang="id">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>PAI Immersive Learning — Ruang Kelas Virtual 3D &amp; AI Tutor PAI</title>
   <link rel="stylesheet" href="./ai-tutor-web.css" />
   <script src="https://aframe.io/releases/1.6.0/aframe.min.js" onerror="loadBackupAframe()"></script>
@@ -542,7 +542,7 @@
     </div>
 
     <div class="tutor-body">
-      <div id="ai-status-banner" class="status-banner">Memeriksa konfigurasi Firebase AI Logic...</div>
+      <div id="ai-status-banner" class="status-banner" role="status" aria-live="polite">Memeriksa konfigurasi Firebase AI Logic...</div>
 
       <section class="tutor-section">
         <label class="field-label" for="tutor-topic">Materi / Topik Pembelajaran PAI</label>
@@ -694,7 +694,12 @@
       } else if (window.paiWebTutor && window.paiWebTutor.open) {
         window.paiWebTutor.open(activeId);
       } else {
-        showHudMessage('Memuat panel AI Tutor PAI...');
+        // Fallback UI: panel tetap dapat dibuka walau modul AI masih dimuat.
+        var backdrop = document.getElementById('ai-tutor-backdrop');
+        var drawer = document.getElementById('ai-tutor-drawer');
+        if (backdrop) backdrop.classList.add('open');
+        if (drawer) drawer.classList.add('open');
+        showHudMessage('Panel AI Tutor PAI dibuka. Periksa status koneksi sebelum memakai fitur AI.');
       }
     }
 
@@ -766,6 +771,19 @@
       setTimeout(function() {
         hideLoadingOverlay();
       }, 6500);
+    });
+  </script>
+  <script>
+    // Aksesibilitas: tombol Escape menutup panel AI Tutor dan kartu objek.
+    document.addEventListener('keydown', function (event) {
+      if (event.key !== 'Escape') return;
+      if (window.paiWebTutor && typeof window.paiWebTutor.close === 'function') {
+        window.paiWebTutor.close();
+      } else {
+        document.getElementById('ai-tutor-backdrop')?.classList.remove('open');
+        document.getElementById('ai-tutor-drawer')?.classList.remove('open');
+      }
+      document.getElementById('web-object-card')?.classList.remove('visible');
     });
   </script>
   <script type="module" src="./ai-tutor-web.js"></script>
