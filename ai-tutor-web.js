@@ -330,7 +330,7 @@ function formatGeminiError(err) {
   return raw;
 }
 
-async function handleGenerateCaseStudy() {
+async async function handleGenerateCaseStudy() {
   if (state.isBusy) return;
   const ctx = getContextInputs();
   state.caseGenerationIndex += 1;
