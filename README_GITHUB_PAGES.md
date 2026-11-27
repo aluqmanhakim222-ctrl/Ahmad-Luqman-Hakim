@@ -22,11 +22,11 @@ Ruang kelas 3D dan antarmuka AI Tutor dapat dimuat dari halaman statis. Pemanggi
 ## Aktivasi Gemini dengan Firebase AI Logic
 
 1. Buka Firebase Console untuk proyek `gen-lang-client-0358370863`.
-2. Pada **Project settings → Your apps**, daftarkan aplikasi Web dan salin Firebase Web config, khususnya `apiKey` dan `appId`.
-3. Buat kunci **reCAPTCHA Enterprise untuk Website** dengan domain `aluqmanhakim222-ctrl.github.io`.
-4. Hubungkan key tersebut ke Firebase App Check untuk aplikasi Web.
-5. Aktifkan Firebase AI Logic / Gemini Developer API pada proyek.
-6. Masukkan Web API Key, Web App ID, dan reCAPTCHA Enterprise Site Key ke panel **Pengaturan Koneksi Firebase AI Logic / Backend** di situs (pengaturan tersimpan di browser tersebut), atau isi nilai publik yang sesuai ke `firebase-config.js` sebelum commit.
+2. Pada **Project settings → Your apps**, daftarkan aplikasi Web bernama `PAI Immersive Web` dan salin Firebase Web config, khususnya `apiKey` dan `appId`. Saat ini proyek baru menampilkan aplikasi Android; konfigurasi Web masih belum terdaftar.
+3. Kunci **reCAPTCHA Enterprise Website** untuk domain `aluqmanhakim222-ctrl.github.io` sudah dibuat dan Site Key publiknya sudah disimpan pada `firebase-config.js` di root.
+4. Setelah aplikasi Web terdaftar, hubungkan key tersebut ke Firebase App Check untuk aplikasi Web dan aktifkan enforcement sesuai pengujian.
+5. Pastikan Firebase AI Logic / Gemini Developer API aktif pada proyek.
+6. Masukkan Firebase Web API Key dan Web App ID ke panel **Pengaturan Koneksi Firebase AI Logic / Backend** di situs (pengaturan tersimpan di browser tersebut), atau isi nilai publik yang sesuai ke `firebase-config.js` sebelum commit.
 7. Uji satu per satu tombol Generate Studi Kasus, Analisis Strategi, Umpan Balik, Generate Kuis, dan Tanya AI Tutor.
 
 **Keamanan:** jangan memasukkan `GEMINI_API_KEY` rahasia ke HTML, JavaScript, atau repositori publik. Untuk skenario backend, simpan secret hanya di environment server dan batasi endpoint dengan autentikasi, validasi input, rate limiting, serta CORS yang sesuai.
