@@ -96,14 +96,15 @@ function loadMergedConfig() {
   return {
     geminiModel: saved.geminiModel || PAI_WEB_CONFIG.geminiModel || "gemini-3.8-flash",
     firebase: {
-      apiKey: (savedFb.apiKey ?? baseFb.apiKey ?? "").trim(),
-      authDomain: (savedFb.authDomain ?? baseFb.authDomain ?? "").trim(),
-      projectId: (savedFb.projectId ?? baseFb.projectId ?? "").trim(),
-      storageBucket: (savedFb.storageBucket ?? baseFb.storageBucket ?? "").trim(),
-      messagingSenderId: (savedFb.messagingSenderId ?? baseFb.messagingSenderId ?? "").trim(),
-      appId: (savedFb.appId ?? baseFb.appId ?? "").trim()
+      // Nilai localStorage yang kosong tidak boleh menimpa konfigurasi publik bawaan.
+      apiKey: (savedFb.apiKey || baseFb.apiKey || "").trim(),
+      authDomain: (savedFb.authDomain || baseFb.authDomain || "").trim(),
+      projectId: (savedFb.projectId || baseFb.projectId || "").trim(),
+      storageBucket: (savedFb.storageBucket || baseFb.storageBucket || "").trim(),
+      messagingSenderId: (savedFb.messagingSenderId || baseFb.messagingSenderId || "").trim(),
+      appId: (savedFb.appId || baseFb.appId || "").trim()
     },
-    recaptchaEnterpriseSiteKey: (saved.recaptchaEnterpriseSiteKey ?? PAI_WEB_CONFIG.recaptchaEnterpriseSiteKey ?? "").trim(),
+    recaptchaEnterpriseSiteKey: (saved.recaptchaEnterpriseSiteKey || PAI_WEB_CONFIG.recaptchaEnterpriseSiteKey || "").trim(),
     aiBackendEndpoint: (saved.aiBackendEndpoint ?? PAI_WEB_CONFIG.aiBackendEndpoint ?? "").trim()
   };
 }
