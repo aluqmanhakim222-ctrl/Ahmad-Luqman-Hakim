@@ -4,7 +4,7 @@
 // ATAU melalui URL backend proxy aman Anda (Cloud Run / Firebase Functions / Cloudflare Worker).
 
 export const PAI_WEB_CONFIG = {
-  geminiModel: "gemini-3.8-flash",
+  geminiModel: "gemini-3.5-flash-lite",
   firebase: {
     apiKey: "AIzaSyB8L6slPBYSIHmrlEbrtBIh-qerMrhIiGk",
     authDomain: "gen-lang-client-0358370863.firebaseapp.com",
