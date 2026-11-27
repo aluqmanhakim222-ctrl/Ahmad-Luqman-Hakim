@@ -20,7 +20,7 @@ export const PAI_WEB_CONFIG = {
 
   // Site Key reCAPTCHA Enterprise (Web) untuk domain aluqmanhakim222-ctrl.github.io
   // Buat di Google Cloud Console -> Security -> reCAPTCHA Enterprise -> Create Key (Website)
-  recaptchaEnterpriseSiteKey: "",
+  recaptchaEnterpriseSiteKey: "6LchSzQuAAAAADZ3woo_iZUcRjZNzVuuLk19XxRD",
 
   // Opsional: jika menggunakan backend proxy aman (Cloud Function / Cloud Run / Worker),
   // isi URL endpoint POST JSON { action, prompt, schemaMode }. Jika kosong, SDK akan memakai Firebase AI Logic.
